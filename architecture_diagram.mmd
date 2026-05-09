@@ -1,0 +1,63 @@
+graph TD
+    %% Global Edge Layer
+    subgraph "Global Edge Layer"
+        Users["🌍 Multi-Country Users (Web/Mobile)"]
+        CDN["🌩️ Global CDN & WAF (Geo-Routing / Edge Caching)"]
+        GlobalDNS{"🌐 Global Traffic Manager"}
+        Users --> GlobalDNS
+        GlobalDNS --> CDN
+    end
+
+    %% Region A
+    subgraph "Region A (e.g., Americas) - Active"
+        API_A["🚪 API Gateway (Rate Limiting / Auth)"]
+        Mesh_A["🕸️ Service Mesh (Circuit Breakers / Retries / Bulkheads)"]
+        
+        App_A_Web["📱 Channel & BFF Services"]
+        App_A_Biz["⚙️ Core Business Microservices (Idempotent)"]
+        
+        Cache_A[("⚡ Distributed Cache (Redis)")]
+        
+        API_A --> Mesh_A
+        Mesh_A --> App_A_Web
+        App_A_Web --> App_A_Biz
+        App_A_Biz -.->|Read/Write| Cache_A
+    end
+
+    %% Region B
+    subgraph "Region B (e.g., Europe) - Active (Region A and Region B are completely symmetrical and identical.)"
+        API_B["🚪 API Gateway"]
+        Mesh_B["🕸️ Service Mesh"]
+        App_B["⚙️ Microservices"]
+        API_B --> Mesh_B --> App_B
+    end
+
+    CDN -->|Geo-Routed Traffic| API_A
+    CDN -->|Geo-Routed Traffic| API_B
+
+    %% Data & Async Integration Layer
+    subgraph "Data & Async Integration Layer"
+        Broker["📨 Distributed Event Broker (Kafka)"]
+        DB[("🗄️ Geo-Replicated Database (Multi-Master)")]
+        
+        App_A_Biz -->|Publish / Subscribe Events| Broker
+        App_B -->|Publish / Subscribe Events| Broker
+        
+        App_A_Biz -->|Persist| DB
+        App_B -->|Persist| DB
+    end
+
+    %% Legacy & Downstream
+    subgraph "Core Systems"
+        ERP["🏭 SaleForce"]
+        Broker -->|Decoupled Async Sync| ERP
+    end
+
+    %% Observability Plane
+    subgraph "Central Observability Plane"
+        O11y["📊 Metrics, Logs & Traces (OpenTelemetry / Grafana / ELK)"]
+        Mesh_A -.->|Telemetry| O11y
+        Mesh_B -.->|Telemetry| O11y
+        App_A_Biz -.->|Telemetry| O11y
+        API_A -.->|Telemetry| O11y
+    end

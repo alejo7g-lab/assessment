@@ -1,0 +1,73 @@
+spring:
+  application:
+    name: assessment
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
+
+server:
+  port: 8080
+  shutdown: graceful
+
+# Integration upstream configuration
+integration:
+  upstream:
+    url: ${INTEGRATION_UPSTREAM_URL:http://localhost:8080/upstream/process}
+
+# Demo flaky upstream defaults
+demo:
+  upstream:
+    failure-rate: ${DEMO_FAILURE_RATE:0.6}
+    latency-ms: ${DEMO_LATENCY_MS:0}
+
+# Micrometer Trace Propagation (W3C standard for OpenTelemetry)
+management:
+  tracing:
+    sampling:
+      probability: ${OTEL_SAMPLING_PROBABILITY:1.0}
+    propagation:
+      type: w3c
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: always
+      group:
+        liveness:
+          include: livenessState
+        readiness:
+          include: readinessState,diskSpace
+
+# Unified Logging configuration with Trace Context
+logging:
+  pattern:
+    level: "%5p [${spring.application.name:},%X{traceId:-},%X{spanId:-}]"
+
+# Resilience4j Configuration
+resilience4j:
+  circuitbreaker:
+    instances:
+      externalIntegration:
+        slidingWindowSize: 10
+        failureRateThreshold: 50
+        waitDurationInOpenState: 10s
+        permittedNumberOfCallsInHalfOpenState: 3
+  retry:
+    instances:
+      externalIntegration:
+        maxAttempts: 3
+        waitDuration: 500ms
+        enableExponentialBackoff: true
+        exponentialBackoffMultiplier: 2
+        enableRandomizedWait: true # Adds exponential Jitter
+        randomizedWaitFactor: 0.5
+        retryExceptions:
+          - org.springframework.web.client.RestClientException
+          - java.io.IOException
+  timelimiter:
+    instances:
+      externalIntegration:
+        timeoutDuration: 2s

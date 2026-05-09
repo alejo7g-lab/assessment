@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: assessment
+  labels:
+    app.kubernetes.io/name: assessment
+    app.kubernetes.io/part-of: digital-direct-channel

@@ -1,14 +1,14 @@
 @echo off
 REM =============================================================================
 REM deploy_kubernet.cmd — Build and deploy assessment to local Kubernetes
-REM Namespace: default
-REM Requires: Docker Desktop with Kubernetes enabled (or minikube)
+REM Namespace: kube-node-lease
+REM Requires: Docker Desktop with Kubernetes enabled, minikube, or kind
 REM Usage: deploy_kubernet.cmd [start|stop|restart|logs|status]
 REM =============================================================================
 
 set IMAGE_NAME=assessment
 set IMAGE_TAG=local
-set NAMESPACE=default
+set NAMESPACE=kube-node-lease
 set APP_LABEL=app.kubernetes.io/name=assessment
 
 if "%~1"=="" goto start
@@ -32,6 +32,48 @@ docker build -t %IMAGE_NAME%:%IMAGE_TAG% .
 if %errorlevel% neq 0 (
     echo ERROR: Docker build failed.
     exit /b 1
+)
+
+REM Detect current kubectl context for local cluster image handling
+for /f "usebackq tokens=*" %%c in (`kubectl config current-context 2^>nul`) do set "KUBE_CONTEXT=%%c"
+if not defined KUBE_CONTEXT (
+    echo ERROR: failed to read kubectl current-context. Is kubectl configured?
+    exit /b 1
+)
+echo Current kubectl context: %KUBE_CONTEXT%
+
+set "KIND_CLUSTER_NAME=%KUBE_CONTEXT%"
+if /i "%KUBE_CONTEXT%"=="kind" (
+    set "KIND_CLUSTER_NAME=kind"
+) else if /i "%KUBE_CONTEXT:kind-=%" neq "%KUBE_CONTEXT%" (
+    set "KIND_CLUSTER_NAME=%KUBE_CONTEXT:kind-=%"
+)
+
+if /i "%KUBE_CONTEXT%"=="kind" if not "%KIND_CLUSTER_NAME%"=="kind" set "KIND_CLUSTER_NAME=kind"
+
+if /i "%KUBE_CONTEXT%"=="kind" ( 
+    echo [1b/3] Loading image into kind cluster '%KIND_CLUSTER_NAME%'...
+    kind load docker-image %IMAGE_NAME%:%IMAGE_TAG% --name %KIND_CLUSTER_NAME%
+    if %errorlevel% neq 0 (
+        echo ERROR: Failed to load image into kind cluster.
+        exit /b 1
+    )
+) else if /i "%KUBE_CONTEXT:kind-=%" neq "%KUBE_CONTEXT%" (
+    echo [1b/3] Loading image into kind cluster '%KIND_CLUSTER_NAME%'...
+    kind load docker-image %IMAGE_NAME%:%IMAGE_TAG% --name %KIND_CLUSTER_NAME%
+    if %errorlevel% neq 0 (
+        echo ERROR: Failed to load image into kind cluster.
+        exit /b 1
+    )
+) else if /i "%KUBE_CONTEXT%"=="minikube" (
+    echo [1b/3] Loading image into minikube...
+    minikube image load %IMAGE_NAME%:%IMAGE_TAG%
+    if %errorlevel% neq 0 (
+        echo ERROR: Failed to load image into minikube.
+        exit /b 1
+    )
+) else (
+    echo [1b/3] Using local image in current cluster context.
 )
 
 REM 2. Generate local K8s manifests with namespace override and local image
@@ -87,7 +129,7 @@ echo       terminationGracePeriodSeconds: 60
 echo       containers:
 echo         - name: assessment
 echo           image: %IMAGE_NAME%:%IMAGE_TAG%
-echo           imagePullPolicy: Never
+echo           imagePullPolicy: IfNotPresent
 echo           ports:
 echo             - name: http
 echo               containerPort: 8080
@@ -154,6 +196,16 @@ echo     app.kubernetes.io/name: assessment
 
 REM 3. Apply manifests
 echo [3/3] Applying manifests to namespace %NAMESPACE%...
+
+kubectl get namespace %NAMESPACE% >nul 2>&1
+if %errorlevel% neq 0 (
+    echo Creating namespace %NAMESPACE%...
+    kubectl create namespace %NAMESPACE%
+    if %errorlevel% neq 0 (
+        echo ERROR: Failed to create namespace %NAMESPACE%.
+        exit /b 1
+    )
+)
 
 kubectl apply -f "%TEMP_DIR%\configmap.yml"
 if %errorlevel% neq 0 exit /b 1
